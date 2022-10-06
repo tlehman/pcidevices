@@ -74,7 +74,7 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: spec.nodeName
-          image: rancher/harvester-pcidevices:master-head
+          image: tlehman/pcidevices:dev
           imagePullPolicy: Always
           name: agent
           resources:
