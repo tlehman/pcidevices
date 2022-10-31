@@ -2,6 +2,7 @@ package v1beta1
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	"regexp"
@@ -109,7 +110,7 @@ func resourceName(dev *pci.Device) string {
 	return fmt.Sprintf("%s/%s", vendorCleaned, dev.Product.ID)
 }
 
-func (status *PCIDeviceStatus) Update(dev *pci.Device, hostname string) {
+func (status *PCIDeviceStatus) Update(dev *pci.Device, hostname string, iommuGroups map[string]int) {
 	status.Address = dev.Address
 	status.VendorId = dev.Vendor.ID
 	status.DeviceId = dev.Product.ID
@@ -117,7 +118,10 @@ func (status *PCIDeviceStatus) Update(dev *pci.Device, hostname string) {
 	// Generate the ResourceName field, this is used by KubeVirt to schedule the VM to the node
 	status.ResourceName = resourceName(dev)
 	status.Description = description(dev)
-
+	group, ok := iommuGroups[dev.Address]
+	if ok {
+		status.IOMMUGroup = strconv.Itoa(group)
+	}
 	status.KernelDriverInUse = dev.Driver
 	status.NodeName = hostname
 }

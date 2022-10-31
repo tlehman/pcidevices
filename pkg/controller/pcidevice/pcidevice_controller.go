@@ -6,6 +6,8 @@ import (
 	"os"
 	"time"
 
+	"github.com/harvester/pcidevices/pkg/iommu"
+
 	v1beta1 "github.com/harvester/pcidevices/pkg/apis/devices.harvesterhci.io/v1beta1"
 	ctl "github.com/harvester/pcidevices/pkg/generated/controllers/devices.harvesterhci.io/v1beta1"
 	"github.com/harvester/pcidevices/pkg/util/nichelper"
@@ -61,6 +63,12 @@ func Register(
 
 func (h Handler) reconcilePCIDevices(nodename string) error {
 	// List all PCI Devices on host
+	pci, err := ghw.PCI()
+	if err != nil {
+		return err
+	}
+	// Build up the IOMMU group map
+	iommuGroupMap := iommu.GroupMapForPCIDevices(iommu.GroupPaths())
 
 	commonLabels := map[string]string{"nodename": nodename} // label
 	var setOfRealPCIAddrs map[string]bool = make(map[string]bool)
