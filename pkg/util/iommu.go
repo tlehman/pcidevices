@@ -7,6 +7,16 @@ import (
 	"strings"
 )
 
+func GroupMapForPCIDevices(groupPaths []string) map[string]int {
+	groupMap := make(map[string]int)
+	for _, groupPath := range groupPaths {
+		address := strings.Split(groupPath, "/")[6]
+		group := GroupForPCIDevice(address, groupPaths)
+		groupMap[address] = group
+	}
+	return groupMap
+}
+
 // return the iommu group of the PCI device
 func GroupForPCIDevice(address string, groupPaths []string) int {
 	for _, groupPath := range groupPaths {

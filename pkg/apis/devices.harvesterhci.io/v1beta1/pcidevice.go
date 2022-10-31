@@ -31,6 +31,7 @@ type PCIDeviceStatus struct {
 	VendorId          string `json:"vendorId"`
 	DeviceId          string `json:"deviceId"`
 	ClassId           string `json:"classId"`
+	IOMMUGroup        string `json:"iommuGroup"`
 	NodeName          string `json:"nodeName"`
 	ResourceName      string `json:"resourceName"`
 	Description       string `json:"description"`
