@@ -68,7 +68,11 @@ func (h Handler) reconcilePCIDevices(nodename string) error {
 		return err
 	}
 	// Build up the IOMMU group map
-	iommuGroupMap := iommu.GroupMapForPCIDevices(iommu.GroupPaths())
+	iommuGroupPaths, err := iommu.GroupPaths()
+	if err != nil {
+		return err
+	}
+	iommuGroupMap := iommu.GroupMapForPCIDevices(iommuGroupPaths)
 
 	commonLabels := map[string]string{"nodename": nodename} // label
 	var setOfRealPCIAddrs map[string]bool = make(map[string]bool)

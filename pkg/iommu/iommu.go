@@ -5,57 +5,51 @@ import (
 	"io/ioutil"
 	"strconv"
 	"strings"
+
+	"github.com/sirupsen/logrus"
 )
 
 func GroupMapForPCIDevices(groupPaths []string) map[string]int {
 	groupMap := make(map[string]int)
 	for _, groupPath := range groupPaths {
-		address := strings.Split(groupPath, "/")[6]
-		group := GroupForPCIDevice(address, groupPaths)
-		groupMap[address] = group
-	}
-	return groupMap
-}
-
-// return the iommu group of the PCI device
-func GroupForPCIDevice(address string, groupPaths []string) int {
-	for _, groupPath := range groupPaths {
-		if strings.HasSuffix(groupPath, address) {
-			// extract iommu group from path and return
-			iommuGroupStr := strings.Split(groupPath, "/")[4]
-			iommuGroup, err := strconv.Atoi(iommuGroupStr)
-			if err != nil {
-				// TODO log error
-				return -1
+		groupPathSplit := strings.Split(groupPath, "/")
+		if len(groupPathSplit) > 6 {
+			deviceAddr := groupPathSplit[6]
+			group := groupPathSplit[4]
+			groupInt, err := strconv.Atoi(group)
+			if err == nil {
+				groupMap[deviceAddr] = groupInt
+			} else {
+				logrus.Errorf("groupPath %s contains an invalid IOMMU Group: %v", groupPath, err)
 			}
-			return iommuGroup
+		} else {
+			logrus.Fatalf("groupPath %s does not contain a valid PCI address", groupPath)
 		}
 	}
-	return 0
+	return groupMap
 }
 
 const sysKernelIommuGroups = "/sys/kernel/iommu_groups"
 
 // return all paths like /sys/kernel/iommu_groups/$GROUP/devices/$DEVICE
-func GroupPaths() []string {
+func GroupPaths() ([]string, error) {
 	// list all iommu groups
 	iommuGroups, err := ioutil.ReadDir(sysKernelIommuGroups)
 	if err != nil {
 		// TODO log the error
-		return []string{}
+		return []string{}, err
 	}
 	var groupPaths []string = []string{}
 	for _, group := range iommuGroups {
 		path := fmt.Sprintf("%s/%s/devices", sysKernelIommuGroups, group.Name())
 		devices, err := ioutil.ReadDir(path)
 		if err != nil {
-			// TODO log the error
-			continue
+			return []string{}, err
 		}
 		for _, device := range devices {
 			groupPath := fmt.Sprintf("%s/%s/devices/%s", sysKernelIommuGroups, group.Name(), device.Name())
 			groupPaths = append(groupPaths, groupPath)
 		}
 	}
-	return groupPaths
+	return groupPaths, nil
 }
