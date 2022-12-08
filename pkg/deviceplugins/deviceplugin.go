@@ -3,9 +3,46 @@ package deviceplugins
 import (
 	"github.com/harvester/pcidevices/pkg/apis/devices.harvesterhci.io/v1beta1"
 	dm "kubevirt.io/kubevirt/pkg/virt-handler/device-manager"
-	pluginapi "kubevirt.io/kubevirt/pkg/virt-handler/device-manager/deviceplugin/v1beta1"
-
 )
+
+/* Wrapper for dm.PCIDevicePlugin to retain access to the devs array
+ */
+type PCIDevicePlugin struct {
+	dp         *dm.PCIDevicePlugin
+	pciDevices []*dm.PCIDevice
+}
+
+// Add a PCI Device to the PCIDevicePlugin for that resourceName. When the calling function uses the new PCIDevicePlugin,
+// all pointers to the old one will be set to the new one, and the gc will destroy the old one.
+func (oldDp *PCIDevicePlugin) AddPCIDevicePlugin(resourceName string, claim *v1beta1.PCIDeviceClaim) *PCIDevicePlugin {
+	pciDevice := &dm.PCIDevice{
+		pciID:      claim.Spec.Address,
+		driver:     claim.Status.KernelDriverToUnbind,
+		pciAddress: claim.Spec.Address,
+	}
+	var pciDevices []*dm.PCIDevice = append(oldDp.pciDevices, pciDevice)
+	newDp := dm.NewPCIDevicePlugin(pciDevices, resourceName)
+
+	return &PCIDevicePlugin{
+		dp:         newDp,
+		pciDevices: pciDevices,
+	}
+}
+
+func NewPCIDevicePlugin(resourceName string, claim *v1beta1.PCIDeviceClaim) *PCIDevicePlugin {
+	pciDevice := &dm.PCIDevice{
+		pciID:      claim.Spec.Address,
+		driver:     claim.Status.KernelDriverToUnbind,
+		pciAddress: claim.Spec.Address,
+	}
+	var pciDevices []*dm.PCIDevice = []*dm.PCIDevice{pciDevice}
+	newDp := dm.NewPCIDevicePlugin(pciDevices, resourceName)
+
+	return &PCIDevicePlugin{
+		dp:         newDp,
+		pciDevices: pciDevices,
+	}
+}
 
 /* This function takes a PCIDeviceClaim, then checks if there are any PCIDevicePlugins with that resourceName,
 * if there are, it destroys it and creates a new one,
@@ -14,24 +51,20 @@ import (
 claim is the new PCIDeviceClaim,
 dps is the map from resourceName => all the PCIDevicePlugins
 */
-func NewPCIDevicePluginFromClaim(claim *v1beta1.PCIDeviceClaim, dps map[string]*dm.PCIDevicePlugin) (*dm.PCIDevicePlugin, error) {
+func FindOrCreateDevicePluginFromPCIDeviceClaim(
+	resourceName string,
+	claim *v1beta1.PCIDeviceClaim,
+	dps map[string]*PCIDevicePlugin,
+) *PCIDevicePlugin {
 	// Check if there are any PCIDevicePlugins with that resourceName
-	pd := claim.OwnerReferences[0].Name
-	// TODO Need the resourceName on the PCIDeviceClaim
-
-	for _, dp := range dps {
-		if dp.ResourceName == resourceName {
-			devs := dp.GetDevices()
-			dev := pluginapi.Device{
-				ID: claim.Spec.Address,
-				Health: "Healthy",
-				Topology: ,
-			}
-			devs = append(devs, pluginapi.
-			// Destroy the PCIDevicePlugin and create a new one
-			dp.Destroy()
-			return dm.NewPCIDevicePlugin(devs, resourceName)
-		}
+	dp, found := dps[resourceName]
+	if !found {
+		// Create the DevicePlugin
+		dp = NewPCIDevicePlugin(resourceName, claim)
+		dps[resourceName] = dp
+	} else {
+		// Destroy the old DevicePlugin and create a new one
+		dps[resourceName] = dp.AddPCIDevicePlugin(resourceName, claim)
 	}
-
+	return dp
 }
