@@ -9,13 +9,13 @@ import (
 	"time"
 
 	"github.com/harvester/pcidevices/pkg/apis/devices.harvesterhci.io/v1beta1"
+	"github.com/harvester/pcidevices/pkg/deviceplugins"
 	v1beta1gen "github.com/harvester/pcidevices/pkg/generated/controllers/devices.harvesterhci.io/v1beta1"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/pflag"
 	"github.com/u-root/u-root/pkg/kmodule"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	kubevirtv1 "kubevirt.io/api/core/v1"
 	"kubevirt.io/client-go/kubecli"
 )
 
@@ -31,10 +31,11 @@ type Controller struct {
 }
 
 type Handler struct {
-	pdcClient  v1beta1gen.PCIDeviceClaimClient
-	pdClient   v1beta1gen.PCIDeviceClient
-	virtClient kubecli.KubevirtClient
-	nodeName   string
+	pdcClient     v1beta1gen.PCIDeviceClaimClient
+	pdClient      v1beta1gen.PCIDeviceClient
+	virtClient    kubecli.KubevirtClient
+	nodeName      string
+	devicePlugins map[string]*deviceplugins.PCIDevicePlugin
 }
 
 func Register(
@@ -115,13 +116,13 @@ func bindDeviceToVFIOPCIDriver(pd *v1beta1.PCIDevice) error {
 
 // Enabling passthrough for a PCI Device requires two steps:
 // 1. Bind the device to the vfio-pci driver in the host
-// 2. Permit the device in KubeVirt's Config in the cluster
-func (h Handler) enablePassthrough(pd *v1beta1.PCIDevice) error {
+// 2. Add device to DevicePlugin so KubeVirt will recognize it
+func (h Handler) enablePassthrough(pd *v1beta1.PCIDevice, pdc *v1beta1.PCIDeviceClaim) error {
 	err := bindDeviceToVFIOPCIDriver(pd)
 	if err != nil {
 		return err
 	}
-	err = h.addHostDeviceToKubeVirt(pd)
+	err = h.addToDevicePlugin(pd, pdc)
 	if err != nil {
 		return err
 	}
@@ -201,47 +202,6 @@ func (h Handler) removeHostDeviceFromKubeVirt(pd *v1beta1.PCIDevice) error {
 	return nil
 }
 
-func (h Handler) addHostDeviceToKubeVirt(pd *v1beta1.PCIDevice) error {
-	logrus.Infof("Adding %s to KubeVirt list of permitted devices", pd.Name)
-	kv, err := h.virtClient.KubeVirt(DefaultNS).Get(KubevirtCR, &v1.GetOptions{})
-	if err != nil {
-		msg := fmt.Sprintf("cannot obtain KubeVirt CR: %v", err)
-		return errors.New(msg)
-	}
-	kvCopy := kv.DeepCopy()
-	if kv.Spec.Configuration.PermittedHostDevices == nil {
-		kvCopy.Spec.Configuration.PermittedHostDevices = &kubevirtv1.PermittedHostDevices{
-			PciHostDevices: []kubevirtv1.PciHostDevice{},
-		}
-	}
-	permittedPCIDevices := kvCopy.Spec.Configuration.PermittedHostDevices.PciHostDevices
-	resourceName := pd.Status.ResourceName
-	// check if device is currently permitted
-	var devPermitted bool = false
-	for _, permittedPCIDev := range permittedPCIDevices {
-		if permittedPCIDev.ResourceName == resourceName {
-			devPermitted = true
-			break
-		}
-	}
-	if !devPermitted {
-		vendorId := pd.Status.VendorId
-		deviceId := pd.Status.DeviceId
-		devToPermit := kubevirtv1.PciHostDevice{
-			PCIVendorSelector:        fmt.Sprintf("%s:%s", vendorId, deviceId),
-			ResourceName:             resourceName,
-			ExternalResourceProvider: false,
-		}
-		kvCopy.Spec.Configuration.PermittedHostDevices.PciHostDevices = append(permittedPCIDevices, devToPermit)
-		_, err := h.virtClient.KubeVirt(DefaultNS).Update(kvCopy)
-		if err != nil {
-			msg := fmt.Sprintf("Failed to update kubevirt CR: %s", err)
-			return errors.New(msg)
-		}
-	}
-	return nil
-}
-
 func pciDeviceIsClaimed(pd *v1beta1.PCIDevice, pdcs *v1beta1.PCIDeviceClaimList) bool {
 	for _, pdc := range pdcs.Items {
 		if pdc.OwnerReferences == nil {
@@ -312,7 +272,7 @@ func (h Handler) rebindAfterReboot() error {
 		}
 
 		// Enable Passthrough on the device
-		err = h.enablePassthrough(pd)
+		err = h.enablePassthrough(pd, pdcCopy)
 		if err != nil {
 			logrus.Errorf("Error rebinding device after reboot: %s", err)
 			pdcCopy.Status.PassthroughEnabled = false
@@ -343,6 +303,21 @@ func (h Handler) reconcilePCIDeviceClaims(name string, pdc *v1beta1.PCIDeviceCla
 	return pdc, nil
 }
 
+/* This function takes a PCIDeviceClaim and adds it to a new or an existing DevicePlugin
+   The DevicePlugin then keeps track of how many of those devices are available to allocate
+*/
+func (h Handler) addToDevicePlugin(pd *v1beta1.PCIDevice, pdc *v1beta1.PCIDeviceClaim) error {
+	resourceName := pd.Status.ResourceName
+	dp := deviceplugins.FindOrCreateDevicePluginFromPCIDeviceClaim(
+		resourceName,
+		pdc,
+		h.devicePlugins,
+	)
+	// Remove the pointer to the old device plugin, replace with new one. GC will clean up old one
+	h.devicePlugins[resourceName] = dp
+	return nil
+}
+
 func (h Handler) attemptToEnablePassthrough(pdc *v1beta1.PCIDeviceClaim) (*v1beta1.PCIDeviceClaim, error) {
 	logrus.Infof("Attempting to enable passthrough for %s", pdc.Name)
 	// Get PCIDevice for the PCIDeviceClaim
@@ -360,7 +335,7 @@ func (h Handler) attemptToEnablePassthrough(pdc *v1beta1.PCIDeviceClaim) (*v1bet
 	pdcCopy.Status.KernelDriverToUnbind = pd.Status.KernelDriverInUse
 	if pd.Status.KernelDriverInUse == vfioPCIDriver {
 		pdcCopy.Status.PassthroughEnabled = true
-		err = h.addHostDeviceToKubeVirt(pd)
+		err = h.addToDevicePlugin(pd, pdcCopy)
 		if err != nil {
 			return pdc, err
 		}
@@ -373,7 +348,7 @@ func (h Handler) attemptToEnablePassthrough(pdc *v1beta1.PCIDeviceClaim) (*v1bet
 			}
 		}
 		// Enable PCI Passthrough by binding the device to the vfio-pci driver
-		err = h.enablePassthrough(pd)
+		err = h.enablePassthrough(pd, pdc)
 		if err != nil {
 			pdcCopy.Status.PassthroughEnabled = false
 		} else {

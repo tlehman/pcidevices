@@ -23,6 +23,7 @@ require (
 	k8s.io/client-go v12.0.0+incompatible
 	k8s.io/kube-aggregator v0.24.0
 	kubevirt.io/client-go v0.54.0
+	kubevirt.io/kubevirt v0.54.0
 	sigs.k8s.io/controller-runtime v0.12.0
 )
 
@@ -44,7 +45,6 @@ require (
 	google.golang.org/genproto v0.0.0-20220502173005-c8bf987b8c21 // indirect
 	google.golang.org/grpc v1.47.0 // indirect
 	howett.net/plist v1.0.0 // indirect
-	kubevirt.io/kubevirt v0.58.0 // indirect
 )
 
 require (
