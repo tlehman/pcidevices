@@ -255,18 +255,37 @@ func (h Handler) reconcilePCIDeviceClaims(name string, pdc *v1beta1.PCIDeviceCla
 	return pdc, nil
 }
 
-/* This function takes a PCIDeviceClaim and adds it to a new or an existing DevicePlugin
-   The DevicePlugin then keeps track of how many of those devices are available to allocate
-*/
+// This function adds the PCIDevice to the device plugin, or creates the device plugin if it doesn't exist
 func (h Handler) addToDevicePlugin(pd *v1beta1.PCIDevice, pdc *v1beta1.PCIDeviceClaim) error {
 	resourceName := pd.Status.ResourceName
-	dp := deviceplugins.FindOrCreateDevicePluginFromPCIDeviceClaim(
+	dp, err := deviceplugins.Find(
 		resourceName,
-		pdc,
 		h.devicePlugins,
 	)
+	if err != nil {
+		// dp wasn't found, create a new one
+		dp = deviceplugins.Create(resourceName, pdc)
+	}
 	// Remove the pointer to the old device plugin, replace with new one. GC will clean up old one
 	h.devicePlugins[resourceName] = dp
+	return nil
+}
+
+func (h Handler) removeFromDevicePlugin(pd *v1beta1.PCIDevice, pdc *v1beta1.PCIDeviceClaim) error {
+	resourceName := pd.Status.ResourceName
+	_, err := deviceplugins.Find(
+		resourceName,
+		h.devicePlugins,
+	)
+	if err != nil {
+		return err
+	}
+	dps := h.devicePlugins
+	newDp, err := deviceplugins.Remove(resourceName, pdc, dps)
+	if err != nil {
+		return err
+	}
+	dps[resourceName] = newDp
 	return nil
 }
 
@@ -289,6 +308,7 @@ func (h Handler) attemptToEnablePassthrough(pdc *v1beta1.PCIDeviceClaim) (*v1bet
 		pdcCopy.Status.PassthroughEnabled = true
 		err = h.addToDevicePlugin(pd, pdcCopy)
 		if err != nil {
+			logrus.Errorf("Error adding device to device plugin: %s", err)
 			return pdc, err
 		}
 	} else {
@@ -341,6 +361,11 @@ func (h Handler) attemptToDisablePassthrough(pdc *v1beta1.PCIDeviceClaim) (*v1be
 			pdcCopy.Status.PassthroughEnabled = true
 		} else {
 			pdcCopy.Status.PassthroughEnabled = false
+			errDp := h.removeFromDevicePlugin(pd, pdcCopy)
+			if errDp != nil {
+				logrus.Errorf("Error removing device from device plugin: %s", errDp)
+				return pdc, errDp
+			}
 		}
 	}
 	newPdc, err := h.pdcClient.UpdateStatus(pdcCopy)

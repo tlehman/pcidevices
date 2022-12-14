@@ -73,6 +73,14 @@ type PCIDevicePlugin struct {
 	deregistered  chan struct{}
 }
 
+func (dp *PCIDevicePlugin) GetPCIDevices() []*PCIDevice {
+	return dp.pcidevs
+}
+
+func (d *PCIDevice) GetID() string {
+	return d.pciID
+}
+
 func NewPCIDevicePlugin(pciDevices []*PCIDevice, resourceName string) *PCIDevicePlugin {
 	serverSock := SocketPath(strings.Replace(resourceName, "/", "-", -1))
 	iommuToPCIMap := make(map[string]string)
