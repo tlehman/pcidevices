@@ -22,6 +22,7 @@ package deviceplugins
 import (
 	"errors"
 	"fmt"
+	"math"
 	"net"
 	"os"
 	"path"
@@ -71,6 +72,13 @@ type PCIDevicePlugin struct {
 	initialized   bool
 	lock          *sync.Mutex
 	deregistered  chan struct{}
+	starter       *DeviceStarter
+}
+
+type DeviceStarter struct {
+	started  bool
+	stopChan chan struct{}
+	backoff  []time.Duration
 }
 
 func (dp *PCIDevicePlugin) GetPCIDevices() []*PCIDevice {
@@ -121,6 +129,53 @@ func constructDPIdevices(pciDevices []*PCIDevice, iommuToPCIMap map[string]strin
 		devs = append(devs, dpiDev)
 	}
 	return
+}
+
+var defaultBackoffTime = []time.Duration{1 * time.Second, 2 * time.Second, 5 * time.Second, 10 * time.Second}
+
+func (dpi *PCIDevicePlugin) StartWithRetryAndBackOff() (err error) {
+	c := dpi.starter
+	if c.started {
+		return nil
+	}
+
+	stop := make(chan struct{})
+
+	logger := log.DefaultLogger()
+	dev := dpi
+	deviceName := dev.GetDeviceName()
+	logger.Infof("Starting a device plugin for device: %s", deviceName)
+	retries := 0
+
+	backoff := c.backoff
+	if backoff == nil {
+		backoff = defaultBackoffTime
+	}
+
+	go func() {
+		for {
+			err := dev.Start(stop)
+			if err != nil {
+				logger.Reason(err).Errorf("Error starting %s device plugin", deviceName)
+				retries = int(math.Min(float64(retries+1), float64(len(backoff)-1)))
+			} else {
+				retries = 0
+			}
+
+			select {
+			case <-stop:
+				// Ok we don't want to re-register
+				return
+			case <-time.After(backoff[retries]):
+				// Wait a little and re-register
+				continue
+			}
+		}
+	}()
+
+	c.stopChan = stop
+	c.started = true
+	return nil
 }
 
 // Start starts the device plugin

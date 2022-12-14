@@ -268,6 +268,7 @@ func (h Handler) addToDevicePlugin(pd *v1beta1.PCIDevice, pdc *v1beta1.PCIDevice
 	}
 	// Remove the pointer to the old device plugin, replace with new one. GC will clean up old one
 	h.devicePlugins[resourceName] = dp
+	dp.StartWithRetryAndBackOff()
 	return nil
 }
 
@@ -286,6 +287,7 @@ func (h Handler) removeFromDevicePlugin(pd *v1beta1.PCIDevice, pdc *v1beta1.PCID
 		return err
 	}
 	dps[resourceName] = newDp
+	newDp.StartWithRetryAndBackOff()
 	return nil
 }
 
