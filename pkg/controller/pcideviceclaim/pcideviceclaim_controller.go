@@ -268,6 +268,7 @@ func (h Handler) addToDevicePlugin(pd *v1beta1.PCIDevice, pdc *v1beta1.PCIDevice
 	}
 	// Remove the pointer to the old device plugin, replace with new one. GC will clean up old one
 	h.devicePlugins[resourceName] = dp
+	logrus.Infof("[addToDevicePlugin] Starting device plugin for %s", resourceName)
 	dp.StartWithRetryAndBackOff()
 	return nil
 }
@@ -287,6 +288,7 @@ func (h Handler) removeFromDevicePlugin(pd *v1beta1.PCIDevice, pdc *v1beta1.PCID
 		return err
 	}
 	dps[resourceName] = newDp
+	logrus.Infof("[removeFromDevicePlugin] Starting device plugin for %s", resourceName)
 	newDp.StartWithRetryAndBackOff()
 	return nil
 }
