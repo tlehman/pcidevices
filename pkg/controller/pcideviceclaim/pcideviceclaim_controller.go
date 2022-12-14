@@ -52,10 +52,11 @@ func Register(
 	}
 	nodename := os.Getenv("NODE_NAME")
 	handler := &Handler{
-		pdcClient:  pdcClient,
-		pdClient:   pdClient,
-		virtClient: virtClient,
-		nodeName:   nodename,
+		pdcClient:     pdcClient,
+		pdClient:      pdClient,
+		virtClient:    virtClient,
+		nodeName:      nodename,
+		devicePlugins: make(map[string]*deviceplugins.PCIDevicePlugin),
 	}
 
 	pdcClient.OnRemove(ctx, "PCIDeviceClaimOnRemove", handler.OnRemove)
