@@ -107,6 +107,11 @@ func NewPCIDevicePlugin(pciDevices []*PCIDevice, resourceName string) *PCIDevice
 		health:        make(chan deviceHealth),
 		initialized:   false,
 		lock:          &sync.Mutex{},
+		starter: &DeviceStarter{
+			started:  false,
+			stopChan: make(chan struct{}),
+			backoff:  defaultBackoffTime,
+		},
 	}
 	return dpi
 }
@@ -148,9 +153,6 @@ func (dpi *PCIDevicePlugin) StartWithRetryAndBackOff() (err error) {
 	retries := 0
 
 	backoff := c.backoff
-	if backoff == nil {
-		backoff = defaultBackoffTime
-	}
 
 	go func() {
 		for {

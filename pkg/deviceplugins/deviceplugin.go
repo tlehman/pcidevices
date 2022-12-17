@@ -4,20 +4,35 @@ import (
 	"fmt"
 
 	"github.com/harvester/pcidevices/pkg/apis/devices.harvesterhci.io/v1beta1"
+	pluginapi "kubevirt.io/kubevirt/pkg/virt-handler/device-manager/deviceplugin/v1beta1"
 )
 
-// Add a PCI Device to the PCIDevicePlugin for that resourceName. When the calling function uses the new PCIDevicePlugin,
-// all pointers to the old one will be set to the new one, and the gc will destroy the old one.
-func (oldDp *PCIDevicePlugin) AddPCIDevicePlugin(resourceName string, claim *v1beta1.PCIDeviceClaim) *PCIDevicePlugin {
+// Add a PCI Device to the PCIDevicePlugin for that resourceName
+func (dp *PCIDevicePlugin) AddPCIDeviceToPlugin(resourceName string, claim *v1beta1.PCIDeviceClaim) {
 	pciDevice := &PCIDevice{
 		pciID:      claim.Spec.Address,
 		driver:     claim.Status.KernelDriverToUnbind,
 		pciAddress: claim.Spec.Address,
 	}
 
-	pciDevices := append(oldDp.pcidevs, pciDevice)
-	newDp := NewPCIDevicePlugin(pciDevices, resourceName)
-	return newDp
+	dp.pcidevs = append(dp.pcidevs, pciDevice)
+	// Reconstruct the devs from the pcidevs
+	dp.devs = []*pluginapi.Device{}
+	dp.devs = constructDPIdevices(dp.pcidevs, dp.iommuToPCIMap)
+}
+
+// Remove a PCI Device from the PCIDevicePlugin
+func (dp *PCIDevicePlugin) RemovePCIDeviceFromPlugin(claim *v1beta1.PCIDeviceClaim) error {
+	for i, pcidev := range dp.pcidevs {
+		if pcidev.pciID == claim.Spec.Address {
+			dp.pcidevs = append(dp.pcidevs[:i], dp.pcidevs[i+1:]...)
+			// Reconstruct the devs from the pcidevs
+			dp.devs = []*pluginapi.Device{}
+			dp.devs = constructDPIdevices(dp.pcidevs, dp.iommuToPCIMap)
+			return nil
+		}
+	}
+	return fmt.Errorf("[RemovePCIDeviceFromPlugin] device plugin does not have PCI device %s", claim.Spec.Address)
 }
 
 // Looks for a PCIDevicePlugin with that resourceName, and returns it, or an error if it doesn't exist
@@ -46,28 +61,4 @@ func Create(
 	// Create the DevicePlugin
 	dp := NewPCIDevicePlugin(pcidevs, resourceName)
 	return dp
-}
-
-// Removes a PCIDevice from the PCIDevicePlugin for that resourceName
-func Remove(
-	resourceName string,
-	claim *v1beta1.PCIDeviceClaim,
-	dps map[string]*PCIDevicePlugin,
-) (*PCIDevicePlugin, error) {
-	dp, err := Find(resourceName, dps)
-	if err != nil {
-		return nil, err
-	}
-	// pull out the pcidevs, delete and return a new one
-	pcidevs := dp.GetPCIDevices()
-	// find the index of the pcidev to remove
-	for i, pcidev := range pcidevs {
-		if pcidev.GetID() == claim.Spec.Address {
-			pcidevs = append(pcidevs[:i], pcidevs[i+1:]...)
-			break
-		}
-	}
-	dp = NewPCIDevicePlugin(pcidevs, resourceName)
-
-	return dp, nil
 }

@@ -262,35 +262,32 @@ func (h Handler) addToDevicePlugin(pd *v1beta1.PCIDevice, pdc *v1beta1.PCIDevice
 		resourceName,
 		h.devicePlugins,
 	)
-	if err != nil {
+	if err == nil {
+		logrus.Infof("[addToDevicePlugin] Adding new claimed %s to device plugin", resourceName)
+		dp.AddPCIDeviceToPlugin(resourceName, pdc)
+	} else {
 		// dp wasn't found, create a new one
+		logrus.Infof("[addToDevicePlugin] Creating new %s device plugin", resourceName)
 		dp = deviceplugins.Create(resourceName, pdc)
+		h.devicePlugins[resourceName] = dp
+		err = dp.StartWithRetryAndBackOff()
 	}
-	// Remove the pointer to the old device plugin, replace with new one. GC will clean up old one
-	h.devicePlugins[resourceName] = dp
-	logrus.Infof("[addToDevicePlugin] Starting device plugin for %s", resourceName)
-	dp.StartWithRetryAndBackOff()
-	return nil
+	return err
 }
 
 func (h Handler) removeFromDevicePlugin(pd *v1beta1.PCIDevice, pdc *v1beta1.PCIDeviceClaim) error {
 	resourceName := pd.Status.ResourceName
-	_, err := deviceplugins.Find(
+	dp, err := deviceplugins.Find(
 		resourceName,
 		h.devicePlugins,
 	)
-	if err != nil {
-		return err
+	if err == nil {
+		logrus.Infof("[removeFromDevicePlugin] Removing claimed device %s from %s", pdc.Spec.Address, resourceName)
+		err = dp.RemovePCIDeviceFromPlugin(pdc)
+	} else {
+		logrus.Errorf("[removeFromDevicePlugin] Error removing device: %s", err)
 	}
-	dps := h.devicePlugins
-	newDp, err := deviceplugins.Remove(resourceName, pdc, dps)
-	if err != nil {
-		return err
-	}
-	dps[resourceName] = newDp
-	logrus.Infof("[removeFromDevicePlugin] Starting device plugin for %s", resourceName)
-	newDp.StartWithRetryAndBackOff()
-	return nil
+	return err
 }
 
 func (h Handler) attemptToEnablePassthrough(pdc *v1beta1.PCIDeviceClaim) (*v1beta1.PCIDeviceClaim, error) {
