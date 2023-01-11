@@ -258,10 +258,12 @@ func (h Handler) reconcilePCIDeviceClaims(name string, pdc *v1beta1.PCIDeviceCla
 // This function adds the PCIDevice to the device plugin, or creates the device plugin if it doesn't exist
 func (h Handler) addToDevicePlugin(pd *v1beta1.PCIDevice, pdc *v1beta1.PCIDeviceClaim) error {
 	resourceName := pd.Status.ResourceName
+	logrus.Infof("[addToDevicePlugin] finding device plugin %s", resourceName)
 	dp, err := deviceplugins.Find(
 		resourceName,
 		h.devicePlugins,
 	)
+	logrus.Infof("[addToDevicePlugin] deviceplugins.Find err = %s", err)
 	if err == nil {
 		logrus.Infof("[addToDevicePlugin] Adding new claimed %s to device plugin", resourceName)
 		dp.AddPCIDeviceToPlugin(resourceName, pdc)

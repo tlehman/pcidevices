@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/harvester/pcidevices/pkg/apis/devices.harvesterhci.io/v1beta1"
+	"github.com/sirupsen/logrus"
 	pluginapi "kubevirt.io/kubevirt/pkg/virt-handler/device-manager/deviceplugin/v1beta1"
 )
 
@@ -14,11 +15,14 @@ func (dp *PCIDevicePlugin) AddPCIDeviceToPlugin(resourceName string, claim *v1be
 		driver:     claim.Status.KernelDriverToUnbind,
 		pciAddress: claim.Spec.Address,
 	}
+	logrus.Infof("[AddPCIDeviceToPlugin] Adding pcidevice: %s to device plugin: %s", pciDevice.pciAddress, resourceName)
+	logrus.Infof("[AddPCIDeviceToPlugin] before, len(dp.devs): %d", len(dp.devs))
 
 	dp.pcidevs = append(dp.pcidevs, pciDevice)
 	// Reconstruct the devs from the pcidevs
 	dp.devs = []*pluginapi.Device{}
 	dp.devs = constructDPIdevices(dp.pcidevs, dp.iommuToPCIMap)
+	logrus.Infof("[AddPCIDeviceToPlugin] after, len(dp.devs): %d", len(dp.devs))
 }
 
 // Remove a PCI Device from the PCIDevicePlugin

@@ -32,6 +32,7 @@ import (
 	"time"
 
 	"github.com/fsnotify/fsnotify"
+	"github.com/sirupsen/logrus"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
 
@@ -233,6 +234,7 @@ func (dpi *PCIDevicePlugin) ListAndWatch(_ *pluginapi.Empty, s pluginapi.DeviceP
 	// FIXME: sending an empty list up front should not be needed. This is a workaround for:
 	// https://github.com/kubevirt/kubevirt/issues/1196
 	// This can safely be removed once supported upstream Kubernetes is 1.10.3 or higher.
+	logrus.Infof("[ListAndWatch] len(dpi.devs) = %d", len(dpi.devs))
 	emptyList := []*pluginapi.Device{}
 	s.Send(&pluginapi.ListAndWatchResponse{Devices: emptyList})
 
