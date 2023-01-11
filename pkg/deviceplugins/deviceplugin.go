@@ -23,6 +23,8 @@ func (dp *PCIDevicePlugin) AddPCIDeviceToPlugin(resourceName string, claim *v1be
 	dp.devs = []*pluginapi.Device{}
 	dp.devs = constructDPIdevices(dp.pcidevs, dp.iommuToPCIMap)
 	logrus.Infof("[AddPCIDeviceToPlugin] after, len(dp.devs): %d", len(dp.devs))
+	logrus.Infof("[AddPCIDeviceToPlugin] Restarting")
+	dp.Restart()
 }
 
 // Remove a PCI Device from the PCIDevicePlugin

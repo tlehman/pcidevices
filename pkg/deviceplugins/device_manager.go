@@ -381,6 +381,12 @@ func (dpi *PCIDevicePlugin) GetDeviceName() string {
 	return dpi.resourceName
 }
 
+func (dpi *PCIDevicePlugin) Restart() string {
+	dpi.stopDevicePlugin()
+	dpi.Start(dpi.stop)
+	return dpi.resourceName
+}
+
 // Stop stops the gRPC server
 func (dpi *PCIDevicePlugin) stopDevicePlugin() error {
 	defer func() {
