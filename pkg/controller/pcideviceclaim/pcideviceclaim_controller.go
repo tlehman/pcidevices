@@ -300,7 +300,7 @@ func (h Handler) removeFromDevicePlugin(pd *v1beta1.PCIDevice, pdc *v1beta1.PCID
 	)
 	if err == nil {
 		logrus.Infof("[removeFromDevicePlugin] Removing claimed device %s from %s", pdc.Spec.Address, resourceName)
-		err = dp.RemovePCIDeviceFromPlugin(pdc)
+		dp.MarkPCIDeviceAsUnhealthy(pdc)
 	} else {
 		logrus.Errorf("[removeFromDevicePlugin] Error removing device: %s", err)
 	}
