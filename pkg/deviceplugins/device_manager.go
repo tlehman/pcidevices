@@ -121,8 +121,8 @@ func constructDPIdevices(pciDevices []*PCIDevice, iommuToPCIMap map[string]strin
 	for _, pciDevice := range pciDevices {
 		iommuToPCIMap[pciDevice.iommuGroup] = pciDevice.pciAddress
 		dpiDev := &pluginapi.Device{
-			ID:     string(pciDevice.iommuGroup),
-			Health: pluginapi.Healthy,
+			ID:     string(pciDevice.pciAddress),
+			Health: pluginapi.Unhealthy,
 		}
 		if pciDevice.numaNode >= 0 {
 			numaInfo := &pluginapi.NUMANode{
@@ -231,13 +231,8 @@ func (dpi *PCIDevicePlugin) Start(stop <-chan struct{}) (err error) {
 }
 
 func (dpi *PCIDevicePlugin) ListAndWatch(_ *pluginapi.Empty, s pluginapi.DevicePlugin_ListAndWatchServer) error {
-	// FIXME: sending an empty list up front should not be needed. This is a workaround for:
-	// https://github.com/kubevirt/kubevirt/issues/1196
-	// This can safely be removed once supported upstream Kubernetes is 1.10.3 or higher.
 	logrus.Infof("[ListAndWatch] len(dpi.devs) = %d", len(dpi.devs))
 	emptyList := []*pluginapi.Device{}
-	s.Send(&pluginapi.ListAndWatchResponse{Devices: emptyList})
-
 	s.Send(&pluginapi.ListAndWatchResponse{Devices: dpi.devs})
 
 	done := false

@@ -14,6 +14,9 @@ This operator introduces these CRDs:
 - PCIDevice
 - PCIDeviceClaim
 
+It also introduces a custom PCIDevicePlugin. The way the deviceplugin works is by storing all 
+PCIDevices with the same resourceName. Then when one is claimed, the deviceplugin marks that device state as "healthy".
+
 ## PCIDevice
 
 This custom resource represents PCI Devices on the host. 

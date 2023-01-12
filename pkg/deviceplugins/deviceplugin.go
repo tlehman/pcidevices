@@ -9,28 +9,33 @@ import (
 )
 
 // Add a PCI Device to the PCIDevicePlugin for that resourceName
-func (dp *PCIDevicePlugin) AddPCIDeviceToPlugin(resourceName string, claim *v1beta1.PCIDeviceClaim) {
-	pciDevice := &PCIDevice{
-		pciID:      claim.Spec.Address,
-		driver:     claim.Status.KernelDriverToUnbind,
-		pciAddress: claim.Spec.Address,
-	}
-	logrus.Infof("[AddPCIDeviceToPlugin] Adding pcidevice: %s to device plugin: %s", pciDevice.pciAddress, resourceName)
-	logrus.Infof("[AddPCIDeviceToPlugin] before, len(dp.devs): %d", len(dp.devs))
+func (dp *PCIDevicePlugin) MarkPCIDeviceAsHealthy(resourceName string, claim *v1beta1.PCIDeviceClaim) {
+	logrus.Infof(
+		"[AddPCIDeviceToPlugin] Marking pcidevice: %s in device plugin: %s as healthy",
+		claim.Spec.Address,
+		resourceName,
+	)
 
-	dp.pcidevs = append(dp.pcidevs, pciDevice)
-	// Reconstruct the devs from the pcidevs
-	dp.devs = []*pluginapi.Device{}
-	dp.devs = constructDPIdevices(dp.pcidevs, dp.iommuToPCIMap)
-	logrus.Infof("[AddPCIDeviceToPlugin] after, len(dp.devs): %d", len(dp.devs))
-	logrus.Infof("[AddPCIDeviceToPlugin] Restarting")
-	dp.Restart()
+	dp.lock.Lock()
+	defer dp.lock.Unlock()
+	for i := 0; i < len(dp.devs); i++ {
+		logrus.Infof("[AddPCIDeviceToPlugin] dp.devs[%d].ID = %s", i, dp.devs[i].ID)
+		if dp.devs[i].ID == claim.Spec.Address {
+			dp.devs[i] = &pluginapi.Device{
+				ID:     claim.Spec.Address,
+				Health: pluginapi.Healthy,
+			}
+		}
+		logrus.Infof("[AddPCIDeviceToPlugin] dp.devs[%d].Health = %s", i, dp.devs[i].Health)
+	}
 }
 
 // Remove a PCI Device from the PCIDevicePlugin
 func (dp *PCIDevicePlugin) RemovePCIDeviceFromPlugin(claim *v1beta1.PCIDeviceClaim) error {
 	for i, pcidev := range dp.pcidevs {
 		if pcidev.pciID == claim.Spec.Address {
+			dp.lock.Lock()
+			defer dp.lock.Unlock()
 			dp.pcidevs = append(dp.pcidevs[:i], dp.pcidevs[i+1:]...)
 			// Reconstruct the devs from the pcidevs
 			dp.devs = []*pluginapi.Device{}
@@ -57,14 +62,26 @@ func Find(
 func Create(
 	resourceName string,
 	claim *v1beta1.PCIDeviceClaim,
+	pdsWithSameResourceName []*v1beta1.PCIDevice,
 ) *PCIDevicePlugin {
 	// Check if there are any PCIDevicePlugins with that resourceName
-	pcidevs := []*PCIDevice{{
-		pciID:      claim.Spec.Address,
-		driver:     claim.Status.KernelDriverToUnbind,
-		pciAddress: claim.Spec.Address,
-	}}
+	pcidevs := []*PCIDevice{}
+	for _, pd := range pdsWithSameResourceName {
+		pcidevs = append(pcidevs, &PCIDevice{
+			pciID:      pd.Status.Address,
+			driver:     pd.Status.KernelDriverInUse,
+			pciAddress: pd.Status.Address, // this redundancy is here to distinguish between the ID and the PCI Address. They have the same value but mean different things
+		})
+	}
 	// Create the DevicePlugin
 	dp := NewPCIDevicePlugin(pcidevs, resourceName)
+	// Mark only the claimed device as healthy
+	for _, dev := range dp.devs {
+		if dev.ID == claim.Spec.Address {
+			dev.Health = pluginapi.Healthy // 'healthy' devices are ones that are enabled for passthrough
+		} else {
+			dev.Health = pluginapi.Unhealthy
+		}
+	}
 	return dp
 }

@@ -257,6 +257,7 @@ func (h Handler) reconcilePCIDeviceClaims(name string, pdc *v1beta1.PCIDeviceCla
 
 // This function adds the PCIDevice to the device plugin, or creates the device plugin if it doesn't exist
 func (h Handler) addToDevicePlugin(pd *v1beta1.PCIDevice, pdc *v1beta1.PCIDeviceClaim) error {
+	var err error
 	resourceName := pd.Status.ResourceName
 	logrus.Infof("[addToDevicePlugin] finding device plugin %s", resourceName)
 	dp, err := deviceplugins.Find(
@@ -266,11 +267,22 @@ func (h Handler) addToDevicePlugin(pd *v1beta1.PCIDevice, pdc *v1beta1.PCIDevice
 	logrus.Infof("[addToDevicePlugin] deviceplugins.Find err = %s", err)
 	if err == nil {
 		logrus.Infof("[addToDevicePlugin] Adding new claimed %s to device plugin", resourceName)
-		dp.AddPCIDeviceToPlugin(resourceName, pdc)
+		dp.MarkPCIDeviceAsHealthy(resourceName, pdc)
 	} else {
 		// dp wasn't found, create a new one
 		logrus.Infof("[addToDevicePlugin] Creating new %s device plugin", resourceName)
-		dp = deviceplugins.Create(resourceName, pdc)
+		// Pass in all the PCIDevices with the same resourceName, marking all unhealthy except for the claimed one
+		pds, err := h.pdClient.List(metav1.ListOptions{})
+		if err != nil {
+			return err
+		}
+		pdsWithSameResourceName := []*v1beta1.PCIDevice{}
+		for _, pd := range pds.Items {
+			if pd.Status.ResourceName == resourceName {
+				pdsWithSameResourceName = append(pdsWithSameResourceName, &pd)
+			}
+		}
+		dp = deviceplugins.Create(resourceName, pdc, pdsWithSameResourceName)
 		h.devicePlugins[resourceName] = dp
 		err = dp.StartWithRetryAndBackOff()
 	}
