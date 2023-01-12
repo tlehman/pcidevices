@@ -91,12 +91,20 @@ func (d *PCIDevice) GetID() string {
 }
 
 func NewPCIDevicePlugin(pciDevices []*PCIDevice, resourceName string) *PCIDevicePlugin {
+	// TODO Delete
+	for _, p := range pciDevices {
+		logrus.Infof("(trace) [NewPCIDevicePlugin] pciDevice.pciID = %s", p.pciID)
+	}
 	serverSock := SocketPath(strings.Replace(resourceName, "/", "-", -1))
 	iommuToPCIMap := make(map[string]string)
 
 	initHandler()
 
 	devs := constructDPIdevices(pciDevices, iommuToPCIMap)
+	// TODO Delete
+	for _, d := range devs {
+		logrus.Infof("(trace) [NewPCIDevicePlugin] dev.ID = %s", d.ID)
+	}
 	dpi := &PCIDevicePlugin{
 		pcidevs:       pciDevices,
 		devs:          devs,
@@ -121,7 +129,7 @@ func constructDPIdevices(pciDevices []*PCIDevice, iommuToPCIMap map[string]strin
 	for _, pciDevice := range pciDevices {
 		iommuToPCIMap[pciDevice.iommuGroup] = pciDevice.pciAddress
 		dpiDev := &pluginapi.Device{
-			ID:     string(pciDevice.pciAddress),
+			ID:     string(pciDevice.pciID),
 			Health: pluginapi.Unhealthy,
 		}
 		if pciDevice.numaNode >= 0 {
@@ -318,12 +326,17 @@ func (dpi *PCIDevicePlugin) healthCheck() error {
 
 	// probe all devices
 	for _, dev := range dpi.devs {
-		vfioDevice := filepath.Join(devicePath, dev.ID)
-		err = watcher.Add(vfioDevice)
-		if err != nil {
-			return fmt.Errorf("failed to add the device %s to the watcher: %v", vfioDevice, err)
+		// get iommuGroup from PCI Addr
+		for iommuGroup, pciAddr := range dpi.iommuToPCIMap {
+			if pciAddr == dev.ID {
+				vfioDevice := filepath.Join(devicePath, iommuGroup)
+				err = watcher.Add(vfioDevice)
+				if err != nil {
+					return fmt.Errorf("failed to add the device %s to the watcher: %v", vfioDevice, err)
+				}
+				monitoredDevices[vfioDevice] = dev.ID
+			}
 		}
-		monitoredDevices[vfioDevice] = dev.ID
 	}
 
 	dirName = filepath.Dir(dpi.socketPath)

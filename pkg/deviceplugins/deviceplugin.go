@@ -75,13 +75,6 @@ func Create(
 	}
 	// Create the DevicePlugin
 	dp := NewPCIDevicePlugin(pcidevs, resourceName)
-	// Mark only the claimed device as healthy
-	for _, dev := range dp.devs {
-		if dev.ID == claim.Spec.Address {
-			dev.Health = pluginapi.Healthy // 'healthy' devices are ones that are enabled for passthrough
-		} else {
-			dev.Health = pluginapi.Unhealthy
-		}
-	}
+	dp.MarkPCIDeviceAsHealthy(resourceName, claim)
 	return dp
 }

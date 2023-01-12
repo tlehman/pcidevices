@@ -277,9 +277,12 @@ func (h Handler) addToDevicePlugin(pd *v1beta1.PCIDevice, pdc *v1beta1.PCIDevice
 			return err
 		}
 		pdsWithSameResourceName := []*v1beta1.PCIDevice{}
-		for _, pd := range pds.Items {
-			if pd.Status.ResourceName == resourceName {
-				pdsWithSameResourceName = append(pdsWithSameResourceName, &pd)
+		for _, pdFromCluster := range pds.Items {
+			sameNode := pdFromCluster.Status.NodeName == pd.Status.NodeName
+			sameResourceName := pdFromCluster.Status.ResourceName == resourceName
+			if sameNode && sameResourceName {
+				logrus.Infof("[addToDevicePlugin] (in loop) pdFromCluster.Status.Address = %s (matches)", pdFromCluster.Status.Address)
+				pdsWithSameResourceName = append(pdsWithSameResourceName, pdFromCluster.DeepCopy())
 			}
 		}
 		dp = deviceplugins.Create(resourceName, pdc, pdsWithSameResourceName)
