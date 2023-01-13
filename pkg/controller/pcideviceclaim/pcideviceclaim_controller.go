@@ -364,6 +364,11 @@ func (h Handler) attemptToDisablePassthrough(pdc *v1beta1.PCIDeviceClaim) (*v1be
 	}
 	pdcCopy := pdc.DeepCopy()
 	pdcCopy.Status.KernelDriverToUnbind = pd.Status.KernelDriverInUse
+	errDp := h.removeFromDevicePlugin(pd, pdcCopy)
+	if errDp != nil {
+		logrus.Errorf("Error removing device from device plugin: %s", errDp)
+		return pdc, errDp
+	}
 	if pd.Status.KernelDriverInUse == vfioPCIDriver {
 		pdcCopy.Status.PassthroughEnabled = true
 		// Only unbind from driver is a driver is currently bound to vfio
@@ -379,11 +384,6 @@ func (h Handler) attemptToDisablePassthrough(pdc *v1beta1.PCIDeviceClaim) (*v1be
 			pdcCopy.Status.PassthroughEnabled = true
 		} else {
 			pdcCopy.Status.PassthroughEnabled = false
-			errDp := h.removeFromDevicePlugin(pd, pdcCopy)
-			if errDp != nil {
-				logrus.Errorf("Error removing device from device plugin: %s", errDp)
-				return pdc, errDp
-			}
 		}
 	}
 	newPdc, err := h.pdcClient.UpdateStatus(pdcCopy)

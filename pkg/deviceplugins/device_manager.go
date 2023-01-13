@@ -247,6 +247,7 @@ func (dpi *PCIDevicePlugin) ListAndWatch(_ *pluginapi.Empty, s pluginapi.DeviceP
 	for {
 		select {
 		case devHealth := <-dpi.health:
+			logrus.Infof("[ListAndWatch] received health msg: %v", devHealth)
 			for _, dev := range dpi.devs {
 				if devHealth.DevId == dev.ID {
 					dev.Health = devHealth.Health
