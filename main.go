@@ -1,11 +1,11 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"os"
 
 	"github.com/harvester/pcidevices/pkg/webhook"
+	"golang.org/x/sync/errgroup"
 
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -16,7 +16,6 @@ import (
 	"github.com/rancher/wrangler/pkg/kubeconfig"
 	"github.com/rancher/wrangler/pkg/schemes"
 	"github.com/rancher/wrangler/pkg/signals"
-	"github.com/rancher/wrangler/pkg/start"
 	"github.com/sirupsen/logrus"
 	"github.com/urfave/cli/v2"
 
@@ -104,42 +103,38 @@ func run(kubeConfig string) error {
 	if err != nil {
 		return fmt.Errorf("error building pcidevice controllers: %s", err.Error())
 	}
-	pdcfactory, err := ctl.NewFactoryFromConfigWithOptions(cfg, opts)
-	if err != nil {
-		return fmt.Errorf("error building pcideviceclaim controllers: %s", err.Error())
-	}
 	if err != nil {
 		return err
 	}
 
-	registerControllers := func(ctx context.Context) {
-		pdCtl := pdfactory.Devices().V1beta1().PCIDevice()
+	pdCtl := pdfactory.Devices().V1beta1().PCIDevice()
+	pdcCtl := pdfactory.Devices().V1beta1().PCIDeviceClaim()
+	eg, _ := errgroup.WithContext(ctx)
+	eg.Go(func() error {
 		logrus.Info("Starting PCI Devices controller")
-		if err := pcidevice.Register(ctx, pdCtl); err != nil {
-			logrus.Fatalf("failed to register PCI Devices Controller")
-		}
+		return pcidevice.Register(ctx, pdCtl)
+	})
 
-		pdcCtl := pdcfactory.Devices().V1beta1().PCIDeviceClaim()
+	eg.Go(func() error {
 		logrus.Info("Starting PCI Device Claims Controller")
-		if err = pcideviceclaim.Register(ctx, pdcCtl, pdCtl); err != nil {
-			logrus.Fatalf("failed to register PCI Device Claims Controller")
+		return pcideviceclaim.Register(ctx, pdcCtl, pdCtl)
+	})
+
+	eg.Go(func() error {
+		logrus.Info("Starting Webhook")
+		w := webhook.New(ctx, cfg)
+		if err := w.ListenAndServe(); err != nil {
+			logrus.Fatalf("Error starting webook: %v", err)
+			return err
 		}
+		return nil
+	})
+
+	if err := eg.Wait(); err != nil {
+		logrus.Fatal(err)
+		return err
 	}
 
-	startAllControllers := func(ctx context.Context) {
-		if err := start.All(ctx, 2, pdfactory, pdcfactory); err != nil {
-			logrus.Fatalf("Error starting: %s", err.Error())
-		}
-	}
-
-	registerControllers(ctx)
-	startAllControllers(ctx)
-
-	w := webhook.New(ctx, cfg)
-	if err := w.ListenAndServe(); err != nil {
-		logrus.Fatalf("Error starting webook: %v", err)
-	}
 	<-ctx.Done()
-
 	return nil
 }
