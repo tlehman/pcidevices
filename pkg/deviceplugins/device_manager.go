@@ -129,7 +129,7 @@ func NewPCIDevicePlugin(pciDevices []*PCIDevice, resourceName string) *PCIDevice
 
 func constructDPIdevices(pciDevices []*PCIDevice, iommuToPCIMap map[string]string) (devs []*pluginapi.Device) {
 	for _, pciDevice := range pciDevices {
-		iommuToPCIMap[pciDevice.iommuGroup] = pciDevice.pciAddress
+		iommuToPCIMap[pciDevice.pciAddress] = pciDevice.iommuGroup
 		dpiDev := &pluginapi.Device{
 			ID:     string(pciDevice.pciID),
 			Health: pluginapi.Unhealthy,
@@ -249,7 +249,7 @@ func (dpi *PCIDevicePlugin) ListAndWatch(_ *pluginapi.Empty, s pluginapi.DeviceP
 }
 
 func (dpi *PCIDevicePlugin) Allocate(_ context.Context, r *pluginapi.AllocateRequest) (*pluginapi.AllocateResponse, error) {
-	logrus.Infof("Allocate called with %d requests", len(r.ContainerRequests))
+	logrus.Debugf("Allocate request %s", r.String())
 	resourceNameEnvVar := util.ResourceNameToEnvVar(PCIResourcePrefix, dpi.resourceName)
 	allocatedDevices := []string{}
 	resp := new(pluginapi.AllocateResponse)
@@ -259,12 +259,21 @@ func (dpi *PCIDevicePlugin) Allocate(_ context.Context, r *pluginapi.AllocateReq
 		deviceSpecs := make([]*pluginapi.DeviceSpec, 0)
 		for _, devID := range request.DevicesIDs {
 			// translate device's iommu group to its pci address
-			devPCIAddress, exist := dpi.iommuToPCIMap[devID]
-			if !exist {
-				continue
+			logrus.Debugf("looking up deviceID %s in map %v", devID, dpi.iommuToPCIMap)
+			iommuGroup, exist := dpi.iommuToPCIMap[devID] // not finding device ids
+			if exist {
+				// if device exists, check if there other devices
+				// in the same iommuGroup, and append these too
+				allocatedDevices = append(allocatedDevices, devID)
+				for devPCIAddress, ig := range dpi.iommuToPCIMap {
+					if ig == iommuGroup {
+						allocatedDevices = append(allocatedDevices, devPCIAddress)
+					}
+				}
+				deviceSpecs = append(deviceSpecs, formatVFIODeviceSpecs(iommuGroup)...)
+			} else {
+				continue // break execution of loop as we are not handling this device
 			}
-			allocatedDevices = append(allocatedDevices, devPCIAddress)
-			deviceSpecs = append(deviceSpecs, formatVFIODeviceSpecs(devID)...)
 		}
 		containerResponse.Devices = deviceSpecs
 		envVar := make(map[string]string)
@@ -273,6 +282,7 @@ func (dpi *PCIDevicePlugin) Allocate(_ context.Context, r *pluginapi.AllocateReq
 		containerResponse.Envs = envVar
 		resp.ContainerResponses = append(resp.ContainerResponses, containerResponse)
 	}
+	logrus.Debugf("Allocate response %v", resp)
 	return resp, nil
 }
 

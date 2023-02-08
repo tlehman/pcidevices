@@ -49,6 +49,7 @@ func Create(
 			pciID:      pd.Status.Address,
 			driver:     pd.Status.KernelDriverInUse,
 			pciAddress: pd.Status.Address, // this redundancy is here to distinguish between the ID and the PCI Address. They have the same value but mean different things
+			iommuGroup: pd.Status.IOMMUGroup,
 		})
 	}
 	// Create the DevicePlugin
