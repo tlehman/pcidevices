@@ -286,11 +286,7 @@ func (h Handler) rebindAfterReboot() error {
 
 func (h Handler) reconcilePCIDeviceClaims(name string, pdc *v1beta1.PCIDeviceClaim) (*v1beta1.PCIDeviceClaim, error) {
 
-	if pdc == nil || pdc.DeletionTimestamp != nil {
-		return pdc, nil
-	}
-
-	if pdc.Spec.NodeName != h.nodeName || pdc.Status.PassthroughEnabled {
+	if pdc == nil || pdc.DeletionTimestamp != nil || (pdc.Spec.NodeName != h.nodeName) {
 		return pdc, nil
 	}
 
@@ -300,9 +296,6 @@ func (h Handler) reconcilePCIDeviceClaims(name string, pdc *v1beta1.PCIDeviceCla
 		return pdc, err
 	}
 
-	// Enable PCI Passthrough on the device by binding it to vfio-pci driver
-	newPdc, err := h.attemptToEnablePassthrough(pd, pdc)
-
 	// Find the DevicePlugin
 	resourceName := pd.Status.ResourceName
 	dp := deviceplugins.Find(
@@ -311,6 +304,14 @@ func (h Handler) reconcilePCIDeviceClaims(name string, pdc *v1beta1.PCIDeviceCla
 	)
 
 	h.permitHostDeviceInKubeVirt(pd)
+
+	// If passthrough is already enabled and there's a deviceplugin, then we can return
+	if pdc.Status.PassthroughEnabled && (dp != nil){
+		return pdc, nil
+	}
+
+	// Enable PCI Passthrough on the device by binding it to vfio-pci driver
+	newPdc, err := h.attemptToEnablePassthrough(pd, pdc)
 
 	// If the DevicePlugin can't be found, then create it
 	if dp == nil {
