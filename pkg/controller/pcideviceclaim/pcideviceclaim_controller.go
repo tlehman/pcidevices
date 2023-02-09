@@ -267,7 +267,7 @@ func (h Handler) rebindAfterReboot() error {
 		}
 
 		// Enable Passthrough on the device
-		err = h.enablePassthrough(pd, pdcCopy)
+		err = h.enablePassthrough(pd)
 		if err != nil {
 			logrus.Errorf("Error rebinding device after reboot: %s", err)
 			pdcCopy.Status.PassthroughEnabled = false
