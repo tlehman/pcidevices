@@ -82,9 +82,6 @@ func (h Handler) OnRemove(name string, pdc *v1beta1.PCIDeviceClaim) (*v1beta1.PC
 	if pdc == nil || pdc.DeletionTimestamp == nil || pdc.Spec.NodeName != h.nodeName {
 		return pdc, nil
 	}
-	if pdc == nil {
-		return nil, nil
-	}
 
 	// Get PCIDevice for the PCIDeviceClaim
 	pd, err := h.getPCIDeviceForClaim(pdc)
@@ -94,9 +91,9 @@ func (h Handler) OnRemove(name string, pdc *v1beta1.PCIDeviceClaim) (*v1beta1.PC
 	}
 
 	// Disable PCI Passthrough by unbinding from the vfio-pci device driver
-	newPdc, err := h.attemptToDisablePassthrough(pd, pdc)
+	err = h.attemptToDisablePassthrough(pd, pdc)
 	if err != nil {
-		return newPdc, err
+		return pdc, err
 	}
 
 	// Find the DevicePlugin
@@ -106,19 +103,21 @@ func (h Handler) OnRemove(name string, pdc *v1beta1.PCIDeviceClaim) (*v1beta1.PC
 		h.devicePlugins,
 	)
 	if dp != nil {
-		dp.RemoveDevice(pd, pdc)
+		err = dp.RemoveDevice(pd, pdc)
+		if err != nil {
+			return pdc, err
+		}
 		// Check if that was the last device, and then shut down the dp
 		time.Sleep(5 * time.Second)
 		if dp.GetCount() == 0 {
 			err := dp.Stop()
-			if err == nil {
-				h.devicePlugins[resourceName] = nil
-			} else {
-				return nil, err
+			if err != nil {
+				return pdc, err
 			}
+			delete(h.devicePlugins, resourceName)
 		}
 	}
-	return newPdc, nil
+	return pdc, nil
 }
 
 func loadVfioDrivers() {
@@ -325,7 +324,10 @@ func (h Handler) reconcilePCIDeviceClaims(name string, pdc *v1beta1.PCIDeviceCla
 		h.devicePlugins[resourceName] = dp
 		// Start the DevicePlugin
 		if newPdc.Status.PassthroughEnabled && !dp.Started() {
-			h.startDevicePlugin(pd, newPdc, dp)
+			err = h.startDevicePlugin(pd, newPdc, dp)
+			if err != nil {
+				return pdc, err
+			}
 		}
 	} else {
 		// Add the Device to the DevicePlugin
@@ -442,33 +444,18 @@ func (h Handler) attemptToEnablePassthrough(pd *v1beta1.PCIDevice, pdc *v1beta1.
 
 }
 
-func (h Handler) attemptToDisablePassthrough(pd *v1beta1.PCIDevice, pdc *v1beta1.PCIDeviceClaim) (*v1beta1.PCIDeviceClaim, error) {
+func (h Handler) attemptToDisablePassthrough(pd *v1beta1.PCIDevice, pdc *v1beta1.PCIDeviceClaim) error {
 	logrus.Infof("Attempting to disable passthrough for %s", pdc.Name)
-	pdcCopy := pdc.DeepCopy()
-	pdcCopy.Status.KernelDriverToUnbind = pd.Status.KernelDriverInUse
 	if pd.Status.KernelDriverInUse == vfioPCIDriver {
-		pdcCopy.Status.PassthroughEnabled = true
 		// Only unbind from driver is a driver is currently bound to vfio
 		if strings.TrimSpace(pd.Status.KernelDriverInUse) == vfioPCIDriver {
 			err := unbindDeviceFromDriver(pd.Status.Address, vfioPCIDriver)
 			if err != nil {
-				pdcCopy.Status.PassthroughEnabled = true
+				return err
 			}
 		}
-		// Enable PCI Passthrough by binding the device to the vfio-pci driver
-		err := h.disablePassthrough(pd)
-		if err != nil {
-			pdcCopy.Status.PassthroughEnabled = true
-		} else {
-			pdcCopy.Status.PassthroughEnabled = false
-		}
 	}
-	newPdc, err := h.pdcClient.UpdateStatus(pdcCopy)
-	if err != nil {
-		logrus.Errorf("Error updating status for %s: %s", pdc.Name, err)
-		return pdc, err
-	}
-	return newPdc, nil
+	return nil
 }
 
 func (h Handler) unbindOrphanedPCIDevices() error {

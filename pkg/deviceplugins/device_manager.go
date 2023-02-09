@@ -187,7 +187,7 @@ func (dpi *PCIDevicePlugin) Start(stop <-chan struct{}) (err error) {
 
 	pluginapi.RegisterDevicePluginServer(dpi.server, dpi)
 
-	errChan := make(chan error, 2)
+	errChan := make(chan error, 1)
 
 	go func() {
 		errChan <- dpi.server.Serve(sock)
@@ -203,10 +203,6 @@ func (dpi *PCIDevicePlugin) Start(stop <-chan struct{}) (err error) {
 		return fmt.Errorf("error registering with device plugin manager: %v", err)
 	}
 
-	go func() {
-		errChan <- dpi.healthCheck()
-	}()
-
 	dpi.setInitialized(true)
 	logger.Infof("Initialized DevicePlugin: %s", dpi.resourceName)
 	dpi.starter.started = true
@@ -216,6 +212,12 @@ func (dpi *PCIDevicePlugin) Start(stop <-chan struct{}) (err error) {
 }
 
 func (dpi *PCIDevicePlugin) ListAndWatch(_ *pluginapi.Empty, s pluginapi.DevicePlugin_ListAndWatchServer) error {
+
+	errChan := make(chan error, 1)
+	go func() {
+		errChan <- dpi.healthCheck()
+	}()
+
 	emptyList := []*pluginapi.Device{}
 	s.Send(&pluginapi.ListAndWatchResponse{Devices: dpi.devs})
 
@@ -229,7 +231,7 @@ func (dpi *PCIDevicePlugin) ListAndWatch(_ *pluginapi.Empty, s pluginapi.DeviceP
 				}
 			}
 			s.Send(&pluginapi.ListAndWatchResponse{Devices: dpi.devs})
-			logrus.Infof("Sending ListAndWatchResponse for device with dpi.devs = %v", dpi.devs)
+			logrus.Debug("Sending ListAndWatchResponse for device with dpi.devs = %v", dpi.devs)
 		case <-dpi.stop:
 			done = true
 		case <-dpi.done:
@@ -245,7 +247,7 @@ func (dpi *PCIDevicePlugin) ListAndWatch(_ *pluginapi.Empty, s pluginapi.DeviceP
 		log.DefaultLogger().Reason(err).Infof("%s device plugin failed to deregister: %s", dpi.resourceName, err)
 	}
 	close(dpi.deregistered)
-	return nil
+	return <-errChan
 }
 
 func (dpi *PCIDevicePlugin) Allocate(_ context.Context, r *pluginapi.AllocateRequest) (*pluginapi.AllocateResponse, error) {
@@ -315,14 +317,14 @@ func (dpi *PCIDevicePlugin) healthCheck() error {
 	// probe all devices
 	for _, dev := range dpi.devs {
 		// get iommuGroup from PCI Addr
-		for iommuGroup, pciAddr := range dpi.iommuToPCIMap {
+		for pciAddr, iommuGroup := range dpi.iommuToPCIMap {
 			if pciAddr == dev.ID {
 				vfioDevice := filepath.Join(devicePath, iommuGroup)
 				err = watcher.Add(vfioDevice)
 				if err != nil {
 					return fmt.Errorf("failed to add the device %s to the watcher: %v", vfioDevice, err)
 				}
-				monitoredDevices[vfioDevice] = dev.ID
+				monitoredDevices[dev.ID] = vfioDevice
 			}
 		}
 	}
@@ -336,6 +338,11 @@ func (dpi *PCIDevicePlugin) healthCheck() error {
 	_, err = os.Stat(dpi.socketPath)
 	if err != nil {
 		return fmt.Errorf("failed to stat the device-plugin socket: %v", err)
+	}
+
+	err = watcher.Add(dpi.socketPath)
+	if err != nil {
+		return fmt.Errorf("failed to watch device-plugin socket: %v", err)
 	}
 
 	for {

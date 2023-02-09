@@ -64,6 +64,14 @@ func (dp *PCIDevicePlugin) AddDevice(pd *v1beta1.PCIDevice, pdc *v1beta1.PCIDevi
 	resourceName := pd.Status.ResourceName
 	if dp != nil {
 		logrus.Infof("Adding new claimed %s to device plugin", resourceName)
+		pcidevs := []*PCIDevice{{
+			pciID:      pd.Status.Address,
+			driver:     pd.Status.KernelDriverInUse,
+			pciAddress: pd.Status.Address,
+			iommuGroup: pd.Status.IOMMUGroup,
+		}}
+		devs := constructDPIdevices(pcidevs, dp.iommuToPCIMap)
+		dp.devs = append(dp.devs, devs...)
 		dp.MarkPCIDeviceAsHealthy(resourceName, pdc)
 	}
 	return err
