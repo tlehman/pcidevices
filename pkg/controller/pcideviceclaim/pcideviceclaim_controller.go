@@ -90,10 +90,18 @@ func (h Handler) OnRemove(name string, pdc *v1beta1.PCIDeviceClaim) (*v1beta1.PC
 		return pdc, err
 	}
 
-	// Disable PCI Passthrough by unbinding from the vfio-pci device driver
-	err = h.attemptToDisablePassthrough(pd, pdc)
+
+	// Get PCIDevice for the PCIDeviceClaim
+	pd, err := h.getPCIDeviceForClaim(pdc)
 	if err != nil {
+		logrus.Errorf("Error getting claim's device: %s", err)
 		return pdc, err
+	}
+
+	// Disable PCI Passthrough by unbinding from the vfio-pci device driver
+	newPdc, err := h.attemptToDisablePassthrough(pd, pdc)
+	if err != nil {
+		return newPdc, err
 	}
 
 	// Find the DevicePlugin
@@ -285,11 +293,7 @@ func (h Handler) rebindAfterReboot() error {
 
 func (h Handler) reconcilePCIDeviceClaims(name string, pdc *v1beta1.PCIDeviceClaim) (*v1beta1.PCIDeviceClaim, error) {
 
-	if pdc == nil || pdc.DeletionTimestamp != nil {
-		return pdc, nil
-	}
-
-	if pdc.Spec.NodeName != h.nodeName {
+	if pdc == nil || pdc.DeletionTimestamp != nil || (pdc.Spec.NodeName != h.nodeName) {
 		return pdc, nil
 	}
 
@@ -297,12 +301,6 @@ func (h Handler) reconcilePCIDeviceClaims(name string, pdc *v1beta1.PCIDeviceCla
 	pd, err := h.getPCIDeviceForClaim(pdc)
 	if pd == nil {
 		return pdc, err
-	}
-
-	// Enable PCI Passthrough on the device by binding it to vfio-pci driver
-	newPdc, err := h.attemptToEnablePassthrough(pd, pdc)
-	if err != nil {
-		return pdc, fmt.Errorf("error enabling device passthrough: %v", err)
 	}
 
 	// Find the DevicePlugin
@@ -315,6 +313,14 @@ func (h Handler) reconcilePCIDeviceClaims(name string, pdc *v1beta1.PCIDeviceCla
 	if err := h.permitHostDeviceInKubeVirt(pd); err != nil {
 		return pdc, fmt.Errorf("error updating kubevirt CR: %v", err)
 	}
+
+	// If passthrough is already enabled and there's a deviceplugin, then we can return
+	if pdc.Status.PassthroughEnabled && (dp != nil){
+		return pdc, nil
+	}
+
+	// Enable PCI Passthrough on the device by binding it to vfio-pci driver
+	newPdc, err := h.attemptToEnablePassthrough(pd, pdc)
 
 	// If the DevicePlugin can't be found, then create it
 	if dp == nil {
@@ -429,7 +435,7 @@ func (h Handler) attemptToEnablePassthrough(pd *v1beta1.PCIDevice, pdc *v1beta1.
 			}
 		}
 		// Enable PCI Passthrough by binding the device to the vfio-pci driver
-		err := h.enablePassthrough(pd)
+		err := h.enablePassthrough(pd, pdc)
 		if err != nil {
 			return pdc, err
 		}
@@ -446,7 +452,10 @@ func (h Handler) attemptToEnablePassthrough(pd *v1beta1.PCIDevice, pdc *v1beta1.
 
 func (h Handler) attemptToDisablePassthrough(pd *v1beta1.PCIDevice, pdc *v1beta1.PCIDeviceClaim) error {
 	logrus.Infof("Attempting to disable passthrough for %s", pdc.Name)
+	pdcCopy := pdc.DeepCopy()
+	pdcCopy.Status.KernelDriverToUnbind = pd.Status.KernelDriverInUse
 	if pd.Status.KernelDriverInUse == vfioPCIDriver {
+		pdcCopy.Status.PassthroughEnabled = true
 		// Only unbind from driver is a driver is currently bound to vfio
 		if strings.TrimSpace(pd.Status.KernelDriverInUse) == vfioPCIDriver {
 			err := unbindDeviceFromDriver(pd.Status.Address, vfioPCIDriver)
@@ -454,6 +463,18 @@ func (h Handler) attemptToDisablePassthrough(pd *v1beta1.PCIDevice, pdc *v1beta1
 				return err
 			}
 		}
+		// Disable PCI Passthrough by binding the device to the vfio-pci driver
+		err := h.disablePassthrough(pd)
+		if err != nil {
+			pdcCopy.Status.PassthroughEnabled = true
+		} else {
+			pdcCopy.Status.PassthroughEnabled = false
+		}
+	}
+	newPdc, err := h.pdcClient.UpdateStatus(pdcCopy)
+	if err != nil {
+		logrus.Errorf("Error updating status for %s: %s", pdc.Name, err)
+		return err
 	}
 	return nil
 }

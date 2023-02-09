@@ -62,11 +62,6 @@ func Register(
 }
 
 func (h Handler) reconcilePCIDevices(nodename string) error {
-	// List all PCI Devices on host
-	pci, err := ghw.PCI()
-	if err != nil {
-		return err
-	}
 	// Build up the IOMMU group map
 	iommuGroupPaths, err := iommu.GroupPaths()
 	if err != nil {
@@ -81,7 +76,6 @@ func (h Handler) reconcilePCIDevices(nodename string) error {
 			setOfRealPCIAddrs[dev.Address] = true
 			name := v1beta1.PCIDeviceNameForHostname(dev, nodename)
 			// Check if device is stored
-			var err error
 			devCR, err := h.client.Get(name, metav1.GetOptions{})
 
 			if err != nil {
