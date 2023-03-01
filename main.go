@@ -14,9 +14,9 @@ import (
 	ctlcore "github.com/rancher/wrangler/pkg/generated/controllers/core"
 	"github.com/rancher/wrangler/pkg/generic"
 	"github.com/rancher/wrangler/pkg/kubeconfig"
-	"github.com/rancher/wrangler/pkg/leader"
 	"github.com/rancher/wrangler/pkg/schemes"
 	"github.com/rancher/wrangler/pkg/signals"
+	"github.com/rancher/wrangler/pkg/start"
 	"github.com/sirupsen/logrus"
 	cli "github.com/urfave/cli/v2"
 	"golang.org/x/sync/errgroup"
@@ -109,7 +109,7 @@ func run(kubeConfig string) error {
 	opts := &generic.FactoryOptions{
 		SharedControllerFactory: sharedFactory,
 	}
-	factory, err := ctl.NewFactoryFromConfigWithOptions(cfg, opts)
+	pciFactory, err := ctl.NewFactoryFromConfigWithOptions(cfg, opts)
 	if err != nil {
 		return fmt.Errorf("error building pcidevice controllers: %s", err.Error())
 	}
@@ -137,8 +137,8 @@ func run(kubeConfig string) error {
 	if err != nil {
 		return fmt.Errorf("error building network controllers: %v", err)
 	}
-	pdCtl := factory.Devices().V1beta1().PCIDevice()
-	pdcCtl := factory.Devices().V1beta1().PCIDeviceClaim()
+	pdCtl := pciFactory.Devices().V1beta1().PCIDevice()
+	pdcCtl := pciFactory.Devices().V1beta1().PCIDeviceClaim()
 	nodeCtl := corecontrollers.Core().V1().Node()
 	nodeName := os.Getenv("NODE_NAME")
 	registerControllers := func(ctx context.Context) {
@@ -150,14 +150,16 @@ func run(kubeConfig string) error {
 		if err != nil {
 			logrus.Fatalf("failed to make new client: %s", err)
 		}
-		go leader.RunOrDie(ctx, "harvester-system", "pcidevices-node-cleanup", clientSet, func(cb context.Context) {
-			if err := nodecleanup.Register(ctx, pdcCtl, pdCtl, nodeCtl); err != nil {
-				logrus.Fatalf("failed to register Node Cleanup Controller")
-			}
-		})
+		if err := nodecleanup.Register(ctx, pdcCtl, pdCtl, nodeCtl, clientSet); err != nil {
+			logrus.Fatalf("failed to register Node Cleanup Controller")
+		}
 	}
 
 	registerControllers(ctx)
+
+	if err := start.All(ctx, 3, coreFactory, pciFactory, networkFactory); err != nil {
+		return fmt.Errorf("error starting factories:%v", err)
+	}
 
 	eg, egctx := errgroup.WithContext(ctx)
 	w := webhook.New(egctx, cfg)

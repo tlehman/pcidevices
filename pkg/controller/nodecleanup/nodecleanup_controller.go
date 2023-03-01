@@ -4,23 +4,47 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/harvester/pcidevices/pkg/generated/controllers/devices.harvesterhci.io/v1beta1"
 	corecontrollers "github.com/rancher/wrangler/pkg/generated/controllers/core/v1"
 	"github.com/sirupsen/logrus"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/kubernetes"
+
+	"github.com/harvester/pcidevices/pkg/generated/controllers/devices.harvesterhci.io/v1beta1"
 )
 
 type Handler struct {
+	ctx        context.Context
 	pdcClient  v1beta1.PCIDeviceClaimClient
 	pdClient   v1beta1.PCIDeviceClient
 	nodeClient corecontrollers.NodeController
+	clientSet  *kubernetes.Clientset
+}
+
+func Register(
+	ctx context.Context,
+	pdcClient v1beta1.PCIDeviceClaimController,
+	pdClient v1beta1.PCIDeviceController,
+	nodeClient corecontrollers.NodeController,
+	clientSet *kubernetes.Clientset,
+) error {
+	handler := &Handler{
+		ctx:        ctx,
+		pdcClient:  pdcClient,
+		pdClient:   pdClient,
+		nodeClient: nodeClient,
+		clientSet:  clientSet,
+	}
+	logrus.Info("Registering Node cleanup controller")
+	nodeClient.OnRemove(ctx, "node-remove", handler.OnRemove)
+	return nil
 }
 
 func (h *Handler) OnRemove(_ string, node *v1.Node) (*v1.Node, error) {
 	if node == nil || node.DeletionTimestamp == nil {
 		return node, nil
 	}
+	logrus.Infof("[node=%s]OnRemove", node.Name)
 	// Delete all of that Node's PCIDeviceClaims
 	pdcs, err := h.pdcClient.List(metav1.ListOptions{})
 	if err != nil {
@@ -51,20 +75,5 @@ func (h *Handler) OnRemove(_ string, node *v1.Node) (*v1.Node, error) {
 			return node, err
 		}
 	}
-
 	return node, nil
-}
-
-func Register(
-	ctx context.Context,
-	pdcClient v1beta1.PCIDeviceClaimController,
-	pdClient v1beta1.PCIDeviceController,
-	nodeClient corecontrollers.NodeController) error {
-	handler := &Handler{
-		pdcClient:  pdcClient,
-		pdClient:   pdClient,
-		nodeClient: nodeClient,
-	}
-	nodeClient.OnRemove(ctx, "node-remove", handler.OnRemove)
-	return nil
 }
