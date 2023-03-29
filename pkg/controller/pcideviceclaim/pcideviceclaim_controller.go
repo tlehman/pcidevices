@@ -265,6 +265,8 @@ func (h *Handler) reconcilePCIDeviceClaims(name string, pdc *v1beta1.PCIDeviceCl
 		return pdc, nil
 	}
 
+	// if PCI device is a network interface
+
 	pdcCopy := pdc.DeepCopy()
 	// Get the PCIDevice object for the PCIDeviceClaim
 	pd, err := h.getPCIDeviceForClaim(pdc)

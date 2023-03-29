@@ -33,4 +33,13 @@ func (s PCIDeviceClaimSpec) NodeAddr() string {
 type PCIDeviceClaimStatus struct {
 	KernelDriverToUnbind string `json:"kernelDriverToUnbind"`
 	PassthroughEnabled   bool   `json:"passthroughEnabled"`
+
+	// StateBeforePassthroughEnabled was created to solve issue #3651, which
+	// concerned NIC devices. When a NIC device has a link state = UP and then
+	// is enabled for passthrough, then disabled for passthrough, it has a link
+	// state = DOWN. In order to restore the PCIDevice to the original state,
+	// We need a place to store that state prior to the device being enabled.
+	// For NICs, this will be the ethernet link state
+	// https://github.com/harvester/harvester/issues/3651
+	StateBeforePassthroughEnabled string `json:"stateBeforePassthroughEnabled"`
 }

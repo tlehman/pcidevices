@@ -91,6 +91,7 @@ spec:
 status:
   kernelDriverToUnbind: "e1000e"
   passthroughEnabled: true
+  stateBeforePassthroughEnabled: "UP"
 ```
 
 The PCIDeviceClaim is created with a target PCI address, for the device 
