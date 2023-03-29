@@ -21,8 +21,10 @@ import (
 	"github.com/harvester/pcidevices/pkg/apis/devices.harvesterhci.io/v1beta1"
 	"github.com/harvester/pcidevices/pkg/deviceplugins"
 	v1beta1gen "github.com/harvester/pcidevices/pkg/generated/controllers/devices.harvesterhci.io/v1beta1"
+	"github.com/harvester/pcidevices/pkg/util/nichelper"
 )
 
+const pciEthernetDeviceClass = "0200"
 const pdcFinalizer = "harvesterhci.io/pcidevicecleanup"
 
 const (
@@ -265,13 +267,26 @@ func (h *Handler) reconcilePCIDeviceClaims(name string, pdc *v1beta1.PCIDeviceCl
 		return pdc, nil
 	}
 
-	// if PCI device is a network interface
-
 	pdcCopy := pdc.DeepCopy()
 	// Get the PCIDevice object for the PCIDeviceClaim
 	pd, err := h.getPCIDeviceForClaim(pdc)
 	if pd == nil {
 		return pdc, err
+	}
+
+	// if PCI device is a network interface
+	if pd.Status.ClassId == pciEthernetDeviceClass {
+		pciEthernetDevices, err := nichelper.GetPCIEthernetDevicesWithStates()
+		if err != nil {
+			return pdc, err
+		}
+		// get interface name and device state
+		for _, ethDev := range pciEthernetDevices {
+			if ethDev.PCIAddress == pdc.Spec.Address {
+				pdcCopy.Status.StateBeforePassthroughEnabled = ethDev.LinkState
+				pdcCopy.Status.LogicalName = ethDev.NetworkInterface
+			}
+		}
 	}
 
 	// Find the DevicePlugin

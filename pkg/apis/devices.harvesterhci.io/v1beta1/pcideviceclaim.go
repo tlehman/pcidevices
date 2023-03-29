@@ -41,5 +41,6 @@ type PCIDeviceClaimStatus struct {
 	// We need a place to store that state prior to the device being enabled.
 	// For NICs, this will be the ethernet link state
 	// https://github.com/harvester/harvester/issues/3651
-	StateBeforePassthroughEnabled string `json:"stateBeforePassthroughEnabled"`
+	StateBeforePassthroughEnabled string `json:"stateBeforePassthroughEnabled"` // (optional) used for returning network devices to UP state after passthrough is disabled
+	LogicalName                   string `json:"logicalName"`                   // (optional) used for network devices, example value: "eno4"
 }
